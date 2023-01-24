@@ -358,6 +358,12 @@ psa_status_t mbedtls_test_transparent_signature_sign_hash(
                      signature, signature_size, signature_length);
 }
 
+#define PSA_CRYPTO_TEST_DRIVER_BUILTIN_ECDSA_KEY_SLOT   1
+static const uint8_t mbedtls_test_driver_ecdsa_key[32] =
+{ 0xdc, 0x7d, 0x9d, 0x26, 0xd6, 0x7a, 0x4f, 0x63,
+  0x2c, 0x34, 0xc2, 0xdc, 0x0b, 0x69, 0x86, 0x18,
+  0x38, 0x82, 0xc2, 0x06, 0xdf, 0x04, 0xcd, 0xb7,
+  0xd6, 0x9a, 0xab, 0xe2, 0x8b, 0xe4, 0xf8, 0x1a };
 psa_status_t mbedtls_test_opaque_signature_sign_hash(
     const psa_key_attributes_t *attributes,
     const uint8_t *key, size_t key_length,
@@ -375,7 +381,43 @@ psa_status_t mbedtls_test_opaque_signature_sign_hash(
     (void) signature_size;
     (void) signature_length;
 
-    return PSA_ERROR_NOT_SUPPORTED;
+    if (key_length == sizeof(psa_drv_slot_number_t)) {
+        /* Assume this is a builtin key based on the key material length. */
+        psa_drv_slot_number_t slot_number = *((psa_drv_slot_number_t *) key);
+        switch (slot_number) {
+        case PSA_CRYPTO_TEST_DRIVER_BUILTIN_ECDSA_KEY_SLOT:
+            /* This is the ECDSA slot. Verify the key's attributes before
+             * returning the public key. */
+            if (psa_get_key_type(attributes) !=
+                PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1)) {
+                return PSA_ERROR_CORRUPTION_DETECTED;
+            }
+            if (psa_get_key_bits(attributes) != 256) {
+                return PSA_ERROR_CORRUPTION_DETECTED;
+            }
+            if (psa_get_key_algorithm(attributes) !=
+                PSA_ALG_ECDSA(PSA_ALG_ANY_HASH)) {
+                return PSA_ERROR_CORRUPTION_DETECTED;
+            }
+
+            if (signature_size < PSA_ECDSA_SIGNATURE_SIZE(256)) {
+                return PSA_ERROR_BUFFER_TOO_SMALL;
+            }
+
+            return( psa_sign_hash_builtin( attributes,
+                                           mbedtls_test_driver_ecdsa_key,
+                                           sizeof(mbedtls_test_driver_ecdsa_key),
+                                           alg,
+                                           hash,
+                                           hash_length,
+                                           signature,
+                                           signature_size,
+                                           signature_length ) );
+        default:
+            return PSA_ERROR_DOES_NOT_EXIST;
+        }
+    }
+    return PSA_ERROR_CORRUPTION_DETECTED;
 }
 
 psa_status_t mbedtls_test_transparent_signature_verify_hash(
